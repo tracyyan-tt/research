@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@kitware/vtk.js": "^32.2.0",
+    "react-scripts": "^5.0.1",
+    "vtk.js": "^32.5.1"
+  }
+}
