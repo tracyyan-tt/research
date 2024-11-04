@@ -1,0 +1,7 @@
+# MIME types for various file extensions
+application/vnd.meshlab.ply ply
+text/html html htm
+text/css css
+application/javascript js
+application/json json
+
