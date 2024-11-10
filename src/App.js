@@ -16,6 +16,7 @@ const App = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [edgeColor, setEdgeColor] = useState('#000000');
   const [opacity, setOpacity] = useState(0.5);
+  const [colorChanged, setColorChanged] = useState(false);
 
   useEffect(() => {
     if (!context.current) {
@@ -30,33 +31,48 @@ const App = () => {
         renderer,
         renderWindow,
         currentActor: null,
-        picker: vtkPointPicker.newInstance(), // Initialize point picker
+        picker: vtkPointPicker.newInstance(),
+        actors: [], // Track all actors
       };
-  
+
       const handleRightButtonPress = (callData) => {
+        const { renderer, renderWindow } = context.current;
         if (renderer !== callData.pokedRenderer) return;
-  
+
         const pos = callData.position;
         const point = [pos.x, pos.y, 0.0];
         context.current.picker.pick(point, renderer);
-  
-        const pickedActor = context.current.picker.getActors().length > 0 ? context.current.picker.getActors()[0] : null;
-  
+
+        // Deselect all actors' edges before selecting the new one
+        context.current.actors.forEach((actor) => {
+          actor.getProperty().setEdgeVisibility(false); // Hide edges for all actors
+        });
+
+        const pickedActor = context.current.picker.getActors().length > 0
+          ? context.current.picker.getActors()[0]
+          : null;
+
         if (pickedActor) {
+          // Only change the edge visibility for the selected actor
           pickedActor.getProperty().setEdgeVisibility(true);
-          pickedActor.getProperty().setEdgeColor(...hexToRGB(edgeColor));
+
+          if (colorChanged) {
+            pickedActor.getProperty().setEdgeColor(...hexToRGB(edgeColor));
+          }
+
           pickedActor.getProperty().setOpacity(opacity);
-        } else if (context.current.currentActor) {
-          context.current.currentActor.getProperty().setEdgeVisibility(false);
+          context.current.currentActor = pickedActor; // Update the selected actor
+        } else {
+          context.current.currentActor = null; // No actor clicked
         }
-  
+
         renderWindow.render();
       };
   
       renderWindow.getInteractor().onRightButtonPress(handleRightButtonPress);
     }
-  }, [edgeColor, opacity, vtkContainerRef]);
-  
+  }, [edgeColor, opacity, colorChanged, vtkContainerRef]);
+
   const clearCurrentActor = () => {
     const { currentActor, renderer, renderWindow } = context.current;
     if (currentActor) {
@@ -87,11 +103,12 @@ const App = () => {
     actor.getProperty().setOpacity(opacity);
 
     renderer.addActor(actor);
+    context.current.actors.push(actor); // Add actor to the list of actors
     context.current.currentActor = actor;
     renderer.resetCamera();
     renderWindow.render();
 
-    context.current.picker.addPickList(actor); // Add actor to picker
+    context.current.picker.addPickList(actor);
   };
 
   const loadPLYFile = (data) => {
@@ -114,11 +131,12 @@ const App = () => {
     actor.getProperty().setOpacity(opacity);
 
     renderer.addActor(actor);
+    context.current.actors.push(actor); // Add actor to the list of actors
     context.current.currentActor = actor;
     renderer.resetCamera();
     renderWindow.render();
 
-    context.current.picker.addPickList(actor); // Add actor to picker
+    context.current.picker.addPickList(actor);
   };
 
   const handleFileChange = (event) => {
@@ -163,14 +181,18 @@ const App = () => {
     const b = bigint & 255;
     return [r / 255, g / 255, b / 255];
   };
+
   const handleEdgeColorChange = (e) => {
-    const rgb = e.target.value.match(/\w\w/g).map((x) => parseInt(x, 16) / 255);
-    setEdgeColor(rgb);
+    const newColor = e.target.value;
+    setEdgeColor(newColor);
+    setColorChanged(true);
+
     if (context.current.currentActor) {
-      context.current.currentActor.getProperty().setEdgeColor(...rgb);
+      context.current.currentActor.getProperty().setEdgeColor(...hexToRGB(newColor));
       context.current.renderWindow.render();
     }
   };
+
   return (
     <div>
       <div ref={vtkContainerRef} style={{ height: '100vh' }} />
@@ -202,6 +224,7 @@ const App = () => {
           <label>Edge Color: </label>
           <input
             type="color"
+            value={edgeColor}
             onChange={handleEdgeColorChange}
             title="Select edge color"
           />
