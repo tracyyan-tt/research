@@ -12,7 +12,7 @@ const App = () => {
   const vtkContainerRef = useRef(null);
   const context = useRef(null);
   const [fileType, setFileType] = useState('vtk');
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [errorMessage, setErrorMessage] = useState('');
   const [edgeColor, setEdgeColor] = useState('#000000');
   const [opacity, setOpacity] = useState(0.5);
@@ -25,7 +25,7 @@ const App = () => {
       });
       const renderer = fullScreenRenderer.getRenderer();
       const renderWindow = fullScreenRenderer.getRenderWindow();
-  
+
       context.current = {
         fullScreenRenderer,
         renderer,
@@ -45,7 +45,7 @@ const App = () => {
 
         // Deselect all actors' edges before selecting the new one
         context.current.actors.forEach((actor) => {
-          actor.getProperty().setEdgeVisibility(false); // Hide edges for all actors
+          actor.getProperty().setEdgeVisibility(false);
         });
 
         const pickedActor = context.current.picker.getActors().length > 0
@@ -53,7 +53,6 @@ const App = () => {
           : null;
 
         if (pickedActor) {
-          // Only change the edge visibility for the selected actor
           pickedActor.getProperty().setEdgeVisibility(true);
 
           if (colorChanged) {
@@ -61,37 +60,58 @@ const App = () => {
           }
 
           pickedActor.getProperty().setOpacity(opacity);
-          context.current.currentActor = pickedActor; // Update the selected actor
+          context.current.currentActor = pickedActor;
+          console.log('Selected actor:', pickedActor); // Confirm actor selection
         } else {
-          context.current.currentActor = null; // No actor clicked
+          context.current.currentActor = null;
         }
 
         renderWindow.render();
       };
-  
+
       renderWindow.getInteractor().onRightButtonPress(handleRightButtonPress);
+
+      // Set up event listener for keyboard controls
+      const handleKeyPress = (event) => {
+        if (!context.current.currentActor) {
+          console.log('No actor selected'); // Debugging statement
+          return;
+        }
+
+        const actor = context.current.currentActor;
+        const position = actor.getPosition();
+        const stepSize = 0.1; // Define how much the object moves with each key press
+
+        if (event.key === 'ArrowLeft') {
+          console.log('Moving left from position:', position);
+          actor.setPosition(position[0] - stepSize, position[1], position[2]);
+          console.log('New position:', actor.getPosition());
+        } else if (event.key === 'ArrowRight') {
+          console.log('Moving right from position:', position);
+          actor.setPosition(position[0] + stepSize, position[1], position[2]);
+          console.log('New position:', actor.getPosition());
+        }
+        context.current.renderWindow.render();
+      };
+
+      window.addEventListener('keydown', handleKeyPress);
+
+      return () => {
+        window.removeEventListener('keydown', handleKeyPress);
+      };
     }
   }, [edgeColor, opacity, colorChanged, vtkContainerRef]);
 
-  const clearCurrentActor = () => {
-    const { currentActor, renderer, renderWindow } = context.current;
-    if (currentActor) {
-      renderer.removeActor(currentActor);
-      currentActor.delete();
-      context.current.currentActor = null;
-      renderWindow.render();
-    }
-  };
-
-  const loadVTKFile = (data) => {
+  const loadFile = (file, data) => {
     const { renderer, renderWindow } = context.current;
-    clearCurrentActor();
-    const reader = vtkPolyDataReader.newInstance();
+    const fileExtension = file.name.split('.').pop().toLowerCase();
+    
+    const reader = fileExtension === 'vtk' ? vtkPolyDataReader.newInstance() : vtkPLYReader.newInstance();
     reader.parseAsArrayBuffer(data);
 
     const polydata = reader.getOutputData(0);
     if (!polydata) {
-      console.error("No output data from the VTK reader.");
+      console.error("No output data from the reader.");
       return;
     }
 
@@ -101,38 +121,12 @@ const App = () => {
     mapper.setInputData(polydata);
 
     actor.getProperty().setOpacity(opacity);
+    
+    // Ensure the actor starts at a position so it can be moved later
+    actor.setPosition(0, 0, 0);
 
     renderer.addActor(actor);
-    context.current.actors.push(actor); // Add actor to the list of actors
-    context.current.currentActor = actor;
-    renderer.resetCamera();
-    renderWindow.render();
-
-    context.current.picker.addPickList(actor);
-  };
-
-  const loadPLYFile = (data) => {
-    const { renderer, renderWindow } = context.current;
-    clearCurrentActor();
-    const reader = vtkPLYReader.newInstance();
-    reader.parseAsArrayBuffer(data);
-
-    const polydata = reader.getOutputData(0);
-    if (!polydata) {
-      console.error("No output data from the PLY reader.");
-      return;
-    }
-
-    const mapper = vtkMapper.newInstance();
-    const actor = vtkActor.newInstance();
-    actor.setMapper(mapper);
-    mapper.setInputData(polydata);
-
-    actor.getProperty().setOpacity(opacity);
-
-    renderer.addActor(actor);
-    context.current.actors.push(actor); // Add actor to the list of actors
-    context.current.currentActor = actor;
+    context.current.actors.push(actor);
     renderer.resetCamera();
     renderWindow.render();
 
@@ -140,38 +134,36 @@ const App = () => {
   };
 
   const handleFileChange = (event) => {
-    const file = event.target.files[0];
-    setSelectedFile(file);
+    const files = Array.from(event.target.files);
+    setSelectedFiles(files);
     setErrorMessage('');
   };
 
-  const handleLoadFile = () => {
-    if (!selectedFile) return;
+  const handleAddFiles = () => {
+    if (selectedFiles.length === 0) return;
 
-    const fileExtension = selectedFile.name.split('.').pop().toLowerCase();
-    if ((fileType === 'vtk' && fileExtension !== 'vtk') || (fileType === 'ply' && fileExtension !== 'ply')) {
-      setErrorMessage(`Unmatching file type: Expected a .${fileType} file`);
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const data = e.target.result;
-      if (fileType === 'vtk') {
-        loadVTKFile(data);
-      } else if (fileType === 'ply') {
-        loadPLYFile(data);
+    selectedFiles.forEach((file) => {
+      const fileExtension = file.name.split('.').pop().toLowerCase();
+      if ((fileType === 'vtk' && fileExtension !== 'vtk') || (fileType === 'ply' && fileExtension !== 'ply')) {
+        setErrorMessage(`Unmatching file type: Expected a .${fileType} file`);
+        return;
       }
-    };
-    reader.readAsArrayBuffer(selectedFile);
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const data = e.target.result;
+        loadFile(file, data);
+      };
+      reader.readAsArrayBuffer(file);
+    });
   };
 
   const handleOpacityChange = (e) => {
     setOpacity(parseFloat(e.target.value));
-    if (context.current.currentActor) {
-      context.current.currentActor.getProperty().setOpacity(parseFloat(e.target.value));
-      context.current.renderWindow.render();
-    }
+    context.current.actors.forEach((actor) => {
+      actor.getProperty().setOpacity(parseFloat(e.target.value));
+    });
+    context.current.renderWindow.render();
   };
 
   const hexToRGB = (hex) => {
@@ -187,10 +179,21 @@ const App = () => {
     setEdgeColor(newColor);
     setColorChanged(true);
 
-    if (context.current.currentActor) {
-      context.current.currentActor.getProperty().setEdgeColor(...hexToRGB(newColor));
-      context.current.renderWindow.render();
-    }
+    context.current.actors.forEach((actor) => {
+      actor.getProperty().setEdgeColor(...hexToRGB(newColor));
+    });
+    context.current.renderWindow.render();
+  };
+
+  const clearAllActors = () => {
+    const { renderer, actors, renderWindow } = context.current;
+    actors.forEach((actor) => {
+      renderer.removeActor(actor); // Remove actor from renderer
+      actor.delete(); // Clean up the actor resources
+    });
+    context.current.actors = []; // Clear the actors list
+    context.current.currentActor = null; // Clear any selected actor
+    renderWindow.render(); // Refresh the render window
   };
 
   return (
@@ -204,9 +207,11 @@ const App = () => {
         <input 
           type="file" 
           accept=".vtk,.ply"
+          multiple
           onChange={handleFileChange} 
         />
-        <button onClick={handleLoadFile}>Load File</button>
+        <button onClick={handleAddFiles}>Add Files</button>
+        <button onClick={clearAllActors}>Clear All</button> {/* Clear All button */}
         {errorMessage && <p style={{ color: 'red' }}>{errorMessage}</p>}
         <div>
           <label>Opacity: </label>
